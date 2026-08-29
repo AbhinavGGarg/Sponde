@@ -62,6 +62,15 @@ The sealed agreement is a mutually-approved receipt plus a calendar hold — not
 
 Every tool in this project must pass one test: **if removing it doesn't materially weaken the demo, it wasn't integrated deeply enough.** TrueForge runs the loops and holds the gates; OpenAI's models do the actual bargaining; the room enforces privacy and dual consent; Bright Data's live data changes what gets proposed (offers carry `source_url` + `retrieved_at` on the wire); and Qodo is deliberately a build-time layer — every substantive PR reviewed before merge, never dressed up as a runtime ingredient.
 
+## Qodo Code Review Evidence
+
+Qodo was installed on this repository before the first pull request existed;
+every substantive change reached `main` through a Qodo-reviewed PR.
+
+- **Reviewed & merged PR:** [#1 — feat: the two-key deal room](https://github.com/AbhinavGGarg/Sponde/pull/1)
+- **What Qodo found:** three review rounds, 9 findings — each fixed with a named regression test or answered with a documented reason
+- **How we responded:** every finding was addressed in public — none silently dismissed — with named regression tests or a documented rationale (17 → 27 tests), in commits [authored by our AI assistant and disclosed as such](https://github.com/AbhinavGGarg/Sponde/pull/1/commits), then re-reviewed with `/agentic_review` before merge. The full find → fix → test → re-review loop is visible in [the PR thread](https://github.com/AbhinavGGarg/Sponde/pull/1#issuecomment-5464423070).
+
 ## License
 
 MIT
