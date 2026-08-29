@@ -38,7 +38,7 @@ const TOKENS = `
   ::selection { background:var(--gold); color:var(--ink); }
   .dust { position:fixed; inset:0; pointer-events:none; z-index:-1; overflow:hidden; }
   .dust span { position:absolute; border-radius:50%; background:var(--gold2);
-    box-shadow:0 0 7px var(--gold); opacity:var(--op,.3);
+    box-shadow:0 0 10px var(--gold), 0 0 3px var(--gold2); opacity:var(--op,.5);
     animation:dustdrift ease-in-out infinite alternate; }
   @keyframes dustdrift {
     from { transform:translateY(20px) translateX(0); }
@@ -52,10 +52,10 @@ const dust = (n: number): string => {
   const spans = Array.from({ length: n }, (_, i) => {
     const left = (i * 61 + 7) % 100;
     const top = (i * 37 + 11) % 100;
-    const size = 2 + ((i * 7) % 3);
-    const dur = 7 + ((i * 13) % 10);
+    const size = 2 + ((i * 7) % 4);
+    const dur = 6 + ((i * 13) % 9);
     const delay = -((i * 17) % 14);
-    const op = (22 + ((i * 11) % 34)) / 100;
+    const op = (38 + ((i * 11) % 42)) / 100;
     return `<span style="left:${left}%;top:${top}%;width:${size}px;height:${size}px;animation-duration:${dur}s;animation-delay:${delay}s;--op:${op}"></span>`;
   }).join('');
   return `<div class="dust" aria-hidden="true">${spans}</div>`;
@@ -350,7 +350,7 @@ ${TOKENS}
   }
 </style></head>
 <body>
-${dust(12)}
+${dust(26)}
 <header>
   <span class="brand"><a href="/">SPONDE</a></span>
   <span class="topic">${esc(room.topic)}</span>
@@ -530,7 +530,7 @@ ${TOKENS}
   @media (max-width:760px) { .steps { flex-direction:column; } .dname { min-width:0; } }
 </style>
 </head><body>
-${dust(18)}
+${dust(38)}
 <nav><span class="brand">SPONDE</span><a class="hlink" href="/how">HOW IT WORKS →</a></nav>
 <div class="hero">
   <h1>My agent will talk<br/>to <em>your</em> agent.</h1>
