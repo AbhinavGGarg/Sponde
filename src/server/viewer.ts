@@ -63,18 +63,28 @@ const dust = (n: number): string => {
 
 /* ---------------------------------------------------------------- offers */
 
-function offerCard(body: Record<string, unknown>): string {
+/** Fields whose turn-to-turn movement IS the negotiation. */
+const DIFF_KEYS = ['option', 'item', 'place', 'date', 'time', 'price', 'price_pp', 'duration_minutes', 'quantity'];
+
+function offerCard(body: Record<string, unknown>, changed?: Set<string>, hasPrev = false): string {
   const chips: string[] = [];
-  const chip = (label: string, cls = '') =>
-    chips.push(`<span class="chip ${cls}">${esc(label)}</span>`);
+  // Repetition fades, movement pops: a chip whose value changed since the
+  // previous offer glows gold; one merely restated dims back.
+  const diffCls = (keys: string[]): string => {
+    if (keys.length === 0) return ''; // evidence/committed chips never dim
+    if (changed && keys.some((k) => changed.has(k))) return ' delta';
+    return hasPrev ? ' same' : '';
+  };
+  const chip = (label: string, cls = '', keys: string[] = []) =>
+    chips.push(`<span class="chip ${cls}${diffCls(keys)}">${esc(label)}</span>`);
 
   const title = body.option ?? body.item;
   const price = body.price_pp ?? body.price;
-  if (body.place) chip(String(body.place), 'place');
-  if (body.date || body.time) chip([body.date, body.time].filter(Boolean).join(' · '), 'time');
-  if (price !== undefined) chip(`$${price}${body.price_pp !== undefined ? ' /person' : ''}`, 'price');
-  if (body.duration_minutes) chip(`${body.duration_minutes} min`);
-  if (body.quantity) chip(`× ${body.quantity}`);
+  if (body.place) chip(String(body.place), 'place', ['place']);
+  if (body.date || body.time) chip([body.date, body.time].filter(Boolean).join(' · '), 'time', ['date', 'time']);
+  if (price !== undefined) chip(`$${price}${body.price_pp !== undefined ? ' /person' : ''}`, 'price', ['price', 'price_pp']);
+  if (body.duration_minutes) chip(`${body.duration_minutes} min`, '', ['duration_minutes']);
+  if (body.quantity) chip(`× ${body.quantity}`, '', ['quantity']);
   if (body.source_url) {
     chips.push(
       `<a class="chip source" href="${esc(String(body.source_url))}" target="_blank" rel="noreferrer">⛓ live source${
@@ -93,17 +103,18 @@ function offerCard(body: Record<string, unknown>): string {
     <details class="raw"><summary>raw offer — exactly what crossed the wire</summary><code>${esc(JSON.stringify(body))}</code></details>`;
 }
 
-function messageRow(m: RoomMessage, left: string): string {
+function messageRow(m: RoomMessage, left: string, changed?: Set<string>, hasPrev = false, latest = false): string {
   const side = m.from === left ? 'left' : 'right';
   const kindClass = ['accept', 'reject'].includes(m.kind) ? ` ${m.kind}` : '';
   const body = (m.body ?? {}) as Record<string, unknown>;
-  return `<div class="msg ${side}${kindClass}">
+  return `<div class="msg ${side}${kindClass}${latest ? ' latest' : ''}">
     <div class="msghead">
       <span class="from">${esc(m.from)}</span>
       <span class="kind">${esc(m.kind.toUpperCase())}</span>
+      ${latest ? '<span class="livepill">◈ LATEST</span>' : ''}
       <span class="at">#${String(m.seq).padStart(3, '0')} · ${esc(m.at.slice(11, 19))}</span>
     </div>
-    <div class="msgbody">${offerCard(body)}</div>
+    <div class="msgbody">${offerCard(body, changed, hasPrev)}</div>
   </div>`;
 }
 
@@ -189,11 +200,64 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
       ? `<div class="keyslot turned">🔑 KEY TURNED<span>human approved</span></div>`
       : `<div class="keyslot">🔒 KEY NOT TURNED<span>commit needs its human</span></div>`;
 
+  // Diff each offer against the previous one so the ledger shows MOVEMENT,
+  // not repetition — the negotiation's story is what changed hands.
+  const OFFERISH = new Set(['propose', 'counter', 'accept', 'reject']);
+  let prevOffer: Record<string, unknown> | undefined;
+  const lastSeq = room.messages.length;
+  const rows = room.messages
+    .map((m) => {
+      const body = (m.body ?? {}) as Record<string, unknown>;
+      let changed: Set<string> | undefined;
+      let hasPrev = false;
+      if (OFFERISH.has(m.kind)) {
+        if (prevOffer) {
+          hasPrev = true;
+          const prev = prevOffer;
+          changed = new Set(DIFF_KEYS.filter((k) => JSON.stringify(body[k]) !== JSON.stringify(prev[k])));
+        }
+        prevOffer = body;
+      }
+      return messageRow(m, left, changed, hasPrev, m.seq === lastSeq);
+    })
+    .join('\n');
+
+  const lastMsg = room.messages[room.messages.length - 1];
+  const lastBody = (lastMsg?.body ?? {}) as Record<string, unknown>;
+  const lastPrice =
+    lastBody.price_pp !== undefined ? `$${lastBody.price_pp}/person` : lastBody.price !== undefined ? `$${lastBody.price}` : undefined;
+  const tickerBits = lastMsg
+    ? [`#${String(lastMsg.seq).padStart(3, '0')}`, lastMsg.from, lastMsg.kind.toUpperCase(), lastBody.time ?? lastBody.date, lastPrice]
+        .filter((x): x is string | number => x !== undefined && x !== '')
+        .map((x) => esc(String(x)))
+    : [];
+
   // Live updates via fetch-and-morph — no full-page refresh flash, scroll
   // position preserved, paused while the reader has a raw-offer panel open.
+  // On every new wire message, a gold pulse travels the cable from the
+  // sending agent's side to the receiver's.
   const live = room.status !== 'sealed' && room.status !== 'abandoned';
+  const ticker =
+    lastMsg && live
+      ? `<div class="ticker"><span class="tdot"></span>${tickerBits.join('&nbsp;·&nbsp;')}</div>`
+      : '';
   const poll = live
     ? `<script>
+      function spondePulse() {
+        var wire = document.querySelector('.wire');
+        if (!wire) return;
+        var seq = parseInt(wire.getAttribute('data-lastseq') || '0', 10);
+        if (window.__spondeSeq === undefined) { window.__spondeSeq = seq; return; }
+        if (seq <= window.__spondeSeq) return;
+        window.__spondeSeq = seq;
+        var cable = document.querySelector('.cable');
+        if (!cable) return;
+        var p = document.createElement('span');
+        p.className = 'pulse' + (wire.getAttribute('data-lastside') === 'right' ? ' rtl' : '');
+        cable.appendChild(p);
+        setTimeout(function () { p.remove(); }, 1100);
+      }
+      spondePulse();
       setInterval(async () => {
         if (document.querySelector('details[open]')) return;
         try {
@@ -203,6 +267,7 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
             const y = window.scrollY;
             document.body.replaceChildren(...next.body.childNodes);
             window.scrollTo(0, y);
+            spondePulse();
           }
         } catch {}
       }, 1500);
@@ -289,10 +354,29 @@ ${TOKENS}
   .wire h2 { margin:0; padding:12px 20px; font-size:10.5px; letter-spacing:.26em;
              color:var(--faint); border-bottom:1px solid var(--line); font-weight:400;
              background:var(--panel); }
-  .msg { padding:14px 20px 16px; border-bottom:1px solid var(--line); font-size:13.5px;
-         animation:rise .35s ease both; }
+  .msg { padding:14px 20px 16px; border-bottom:1px solid var(--line); font-size:13.5px; }
   @keyframes rise { from { opacity:0; transform:translateY(4px); } }
   .msg:last-child { border-bottom:0; }
+  .msg.latest { animation:rise .45s ease both; border-left-width:4px;
+                background:linear-gradient(90deg, rgba(217,164,65,.07), transparent 55%); }
+  .livepill { color:var(--gold); font-size:9px; letter-spacing:.22em; border:1px solid var(--golddim);
+              border-radius:999px; padding:2px 9px; animation:pulse 1.4s ease-in-out infinite; }
+  .chip.delta { border-color:var(--gold); color:var(--gold2); background:#1d1608;
+                animation:chipflash 1.1s ease; }
+  @keyframes chipflash { from { box-shadow:0 0 0 5px rgba(217,164,65,.35); } }
+  .chip.same { opacity:.45; }
+  .ticker { display:flex; gap:12px; align-items:center; padding:9px 32px;
+            border-bottom:1px solid var(--line); color:var(--gold); font-family:var(--mono);
+            font-size:12px; letter-spacing:.08em; background:rgba(217,164,65,.045);
+            animation:rise .4s ease both; }
+  .tdot { width:7px; height:7px; border-radius:50%; background:var(--gold); flex:none;
+          animation:pulse 1.2s ease-in-out infinite; }
+  .cable .pulse { position:absolute; top:calc(50% + 6px); width:10px; height:10px; border-radius:50%;
+                  background:var(--gold2); box-shadow:0 0 14px var(--gold); z-index:2;
+                  animation:travel 1s ease forwards; }
+  @keyframes travel { from { left:-2px; opacity:1; } to { left:calc(100% - 8px); opacity:.1; } }
+  .cable .pulse.rtl { animation-name:travelr; }
+  @keyframes travelr { from { left:calc(100% - 8px); opacity:1; } to { left:-2px; opacity:.1; } }
   .msg.left { border-left:3px solid var(--golddim); }
   .msg.right { border-left:3px solid var(--line2); background:#100e0b; }
   .msg.accept { border-left-color:var(--ok); }
@@ -359,6 +443,7 @@ ${dust(26)}
     <span class="status ${esc(room.status)} ${room.status === 'negotiating' ? 'live' : ''}">${esc(statusLabel)}</span>
   </span>
 </header>
+${ticker}
 ${gateBanner}
 <div class="lines">
   <div class="jack">
@@ -382,9 +467,9 @@ ${gateBanner}
     ${connected ? keyState(right) : ''}
   </div>
 </div>
-<div class="wire">
+<div class="wire" data-lastseq="${lastSeq}" data-lastside="${lastMsg && lastMsg.from !== left ? 'right' : 'left'}">
   <h2>ON THE WIRE — ONLY VALIDATED OFFER FIELDS CROSS · RAW CONSTRAINTS HAVE NO CHANNEL</h2>
-  ${room.messages.map((m) => messageRow(m, left)).join('\n') || '<div class="msg"><span class="reason">silence on the line…</span></div>'}
+  ${rows || '<div class="msg"><span class="reason">silence on the line…</span></div>'}
 </div>
 ${sealBlock}
 <footer>read-only operator view · every commit above passed a human approval gate in TrueForge · the room keeps no credentials</footer>
