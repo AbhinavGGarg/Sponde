@@ -22,7 +22,11 @@ export function buildCalendarHold(room: Room): string | undefined {
 
   const commitments = [...room.commitments.values()];
   const terms = commitments[0]?.terms ?? room.topic;
-  const event = commitments.map((c) => c.event).find((e) => e && e.starts_at) ?? commitments[0]?.event;
+  // Only dually-approved metadata reaches the calendar hold: a field appears
+  // in the event only when BOTH sides committed it (equality is enforced at
+  // commit time). One-sided metadata falls back to an all-day hold.
+  const [ma, mb] = commitments.map((c) => c.event);
+  const event = ma && mb ? ma : undefined;
 
   const lines = [
     'BEGIN:VCALENDAR',

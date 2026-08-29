@@ -216,8 +216,11 @@ export function buildSwitchboardServer(store: RoomStore): McpServer {
     },
     async ({ room_id, handle, line_token, terms, starts_at, duration_minutes, location }) => {
       try {
-        if (starts_at !== undefined && Number.isNaN(Date.parse(starts_at))) {
-          return err('starts_at must be a valid ISO-8601 datetime');
+        // Require an explicit timezone: bare local datetimes are ambiguous
+        // across two humans' machines. (Qodo finding.)
+        const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2}|Z)$/;
+        if (starts_at !== undefined && (!ISO_WITH_OFFSET.test(starts_at) || Number.isNaN(Date.parse(starts_at)))) {
+          return err('starts_at must be ISO-8601 WITH a timezone offset, e.g. 2026-08-29T19:45:00-07:00');
         }
         const room = store.commit(room_id, handle, line_token, terms, {
           ...(starts_at !== undefined ? { starts_at } : {}),

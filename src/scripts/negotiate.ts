@@ -22,6 +22,14 @@ const client = new TrueForge({ baseUrl: TRUEFORGE_BASE_URL, timeoutInSeconds: 90
 
 type SideName = 'switchboard-abhinav' | 'switchboard-priya';
 
+/** Room handles are what the operator view keys activity by — always report
+ * under the handle, not the TrueForge agent name. (Qodo finding: identifiers
+ * did not match, so live activity never rendered.) */
+const ROOM_HANDLE: Record<SideName, string> = {
+  'switchboard-abhinav': 'agent-abhinav',
+  'switchboard-priya': 'agent-priya',
+};
+
 interface SideState {
   agent: SideName;
   sessionId: string;
@@ -42,15 +50,12 @@ async function reportActivity(agent: string, state: string, detail: string): Pro
   }
 }
 
-async function roomState(): Promise<{ id: string; status: string } | undefined> {
+/** Status of THIS run's room, by id — never a scrape of the index page. */
+async function roomState(roomId: string): Promise<{ id: string; status: string } | undefined> {
   try {
-    const res = await fetch(`${SWITCHBOARD_URL}/`);
-    const html = await res.text();
-    const id = /room_[0-9a-f]{8}/.exec(html)?.[0];
-    if (!id) return undefined;
-    const sealed = html.includes('SEALED');
-    const abandoned = html.includes('ABANDONED');
-    return { id, status: sealed ? 'sealed' : abandoned ? 'abandoned' : 'live' };
+    const res = await fetch(`${SWITCHBOARD_URL}/room/${roomId}/status`);
+    if (!res.ok) return undefined;
+    return (await res.json()) as { id: string; status: string };
   } catch {
     return undefined;
   }
@@ -59,7 +64,7 @@ async function roomState(): Promise<{ id: string; status: string } | undefined> 
 /** Run one turn; returns what the turn surfaced. */
 async function runTurn(side: SideState, content: string): Promise<'done' | 'approval' | 'error'> {
   let outcome: 'done' | 'approval' | 'error' = 'done';
-  await reportActivity(side.agent, 'negotiating', 'working the room');
+  await reportActivity(ROOM_HANDLE[side.agent], 'negotiating', 'working the room');
   const stream = await client.sessions.createTurnStream(side.sessionId, {
     input: [{ type: 'user.message', content }],
   });
@@ -69,7 +74,7 @@ async function runTurn(side: SideState, content: string): Promise<'done' | 'appr
       outcome = 'approval';
       side.paused = true;
       side.pausedAt = Date.now();
-      await reportActivity(side.agent, 'awaiting_human', 'commit_deal paused for approval');
+      await reportActivity(ROOM_HANDLE[side.agent], 'awaiting_human', 'commit_deal paused for approval');
       await notify(
         'approval_needed',
         `${side.agent} wants to COMMIT the deal — its human must Allow/Deny in the TrueForge UI (${TRUEFORGE_BASE_URL})`,
@@ -83,7 +88,7 @@ async function runTurn(side: SideState, content: string): Promise<'done' | 'appr
       console.log(`[negotiate] room on the wire: ${seenRoomId} → ${SWITCHBOARD_URL}/room/${seenRoomId}`);
     }
   }
-  if (outcome === 'done') await reportActivity(side.agent, 'waiting_reply', 'turn ended, listening');
+  if (outcome === 'done') await reportActivity(ROOM_HANDLE[side.agent], 'waiting_reply', 'turn ended, listening');
   return outcome;
 }
 
@@ -120,10 +125,10 @@ async function main(): Promise<void> {
   // Keep both sides talking until sealed/abandoned, a human gate is pending,
   // or the nudge budget runs out.
   for (;;) {
-    const room = await roomState();
+    const room = seenRoomId ? await roomState(seenRoomId) : undefined;
     if (room?.status === 'sealed') {
-      await reportActivity(A.agent, 'done', 'deal sealed');
-      await reportActivity(B.agent, 'done', 'deal sealed');
+      await reportActivity(ROOM_HANDLE[A.agent], 'done', 'deal sealed');
+      await reportActivity(ROOM_HANDLE[B.agent], 'done', 'deal sealed');
       await notify('resolved', `deal SEALED in ${room.id} — receipt at ${SWITCHBOARD_URL}/room/${room.id}`);
       break;
     }

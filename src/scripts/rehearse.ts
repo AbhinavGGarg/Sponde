@@ -99,6 +99,7 @@ async function main(): Promise<void> {
   await call('commit_deal', {
     room_id: roomId, handle: 'agent-priya', line_token: b.line_token,
     terms: 'Dinner at Nari, tonight 19:45, about $45 per person',
+    starts_at: rehearsalStartsAt(), duration_minutes: 90, location: 'Nari, San Francisco',
   });
   await activity('agent-abhinav', 'done', 'agreement sealed');
   await activity('agent-priya', 'done', 'agreement sealed');

@@ -101,13 +101,32 @@ export function buildApp(store: RoomStore = new RoomStore()): {
     }
   });
 
+  const VALID_STATES: AgentState[] = ['idle', 'negotiating', 'waiting_reply', 'awaiting_human', 'done'];
   app.post('/activity', (req, res) => {
-    const { agent, state, detail } = req.body as { agent?: string; state?: AgentState; detail?: string };
-    if (!agent || !state) {
-      res.status(400).json({ error: 'agent and state required' });
+    const { agent, state, detail } = req.body as { agent?: unknown; state?: unknown; detail?: unknown };
+    if (
+      typeof agent !== 'string' ||
+      agent.length === 0 ||
+      agent.length > 64 ||
+      typeof state !== 'string' ||
+      !VALID_STATES.includes(state as AgentState) ||
+      (detail !== undefined && (typeof detail !== 'string' || detail.length > 140))
+    ) {
+      res.status(400).json({ error: 'agent (≤64 chars), valid state, and optional detail (≤140 chars) required' });
       return;
     }
-    res.json(board.report(agent, state, detail ?? ''));
+    res.json(board.report(agent, state as AgentState, (detail as string | undefined) ?? ''));
+  });
+
+  // Machine-readable status for one room — the driver watches THIS, never a
+  // scrape of the index page. (Qodo finding: the driver could watch an old room.)
+  app.get('/room/:id/status', (req, res) => {
+    try {
+      const room = store.get(req.params.id);
+      res.json({ id: room.id, status: room.status, sealed_at: room.seal?.sealedAt ?? null });
+    } catch {
+      res.status(404).json({ error: 'no such room' });
+    }
   });
 
   // "A stranger could pick it up and drive": one box, one button, the whole

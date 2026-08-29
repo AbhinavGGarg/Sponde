@@ -119,6 +119,7 @@ describe('go/no-go: the action happens exactly once', () => {
     await call('commit_deal', {
       room_id: id, handle: 'agent-b', line_token: bTok,
       terms: 'Dinner at Nari, tonight 19:45, ~$45pp',
+      starts_at: '2026-08-29T19:45:00-07:00', duration_minutes: 90, location: 'Nari, San Francisco',
     });
 
     const first = await (await fetch(`${base}/room/${id}/calendar.ics`)).text();
@@ -143,5 +144,78 @@ describe('go/no-go: the action happens exactly once', () => {
       terms: 'Dinner somewhere at some point', starts_at: 'tonight-ish',
     });
     expect(bad.isError).toBe(true);
+  });
+
+  it('rejects a starts_at WITHOUT a timezone offset (Qodo #5)', async () => {
+    const { id, aTok } = await openRoom();
+    const bad = await call('commit_deal', {
+      room_id: id, handle: 'agent-a', line_token: aTok,
+      terms: 'Dinner somewhere at some point', starts_at: '2026-08-29T19:45:00',
+    });
+    expect(bad.isError).toBe(true);
+  });
+
+  it('mismatched calendar metadata blocks the seal (Qodo #1)', async () => {
+    const { id, aTok, bTok } = await openRoom();
+    await call('commit_deal', {
+      room_id: id, handle: 'agent-a', line_token: aTok,
+      terms: 'Dinner at Nari, tonight', starts_at: '2026-08-29T19:45:00-07:00',
+    });
+    const clash = await call('commit_deal', {
+      room_id: id, handle: 'agent-b', line_token: bTok,
+      terms: 'Dinner at Nari, tonight', starts_at: '2026-08-29T21:00:00-07:00',
+    });
+    expect(clash.isError).toBe(true);
+    const status = (await (await fetch(`${base}/room/${id}/status`)).json()) as { status: string };
+    expect(status.status).toBe('negotiating');
+  });
+
+  it('one-sided calendar metadata never reaches the hold (Qodo #1)', async () => {
+    const { id, aTok, bTok } = await openRoom();
+    await call('commit_deal', {
+      room_id: id, handle: 'agent-a', line_token: aTok,
+      terms: 'Dinner at Nari, sometime soon',
+      starts_at: '2026-08-29T19:45:00-07:00', location: 'Somewhere Sneaky',
+    });
+    await call('commit_deal', {
+      room_id: id, handle: 'agent-b', line_token: bTok,
+      terms: 'Dinner at Nari, sometime soon',
+    });
+    const ics = await (await fetch(`${base}/room/${id}/calendar.ics`)).text();
+    expect(ics).toContain('DTSTART;VALUE=DATE:'); // all-day fallback
+    expect(ics).not.toContain('Somewhere Sneaky'); // un-approved metadata dropped
+  });
+});
+
+describe('go/no-go: the operator surface is hardened', () => {
+  it('room status endpoint reports by id (Qodo #2 driver fix)', async () => {
+    const { id } = await openRoom();
+    const status = await (await fetch(`${base}/room/${id}/status`)).json();
+    expect(status).toEqual({ id, status: 'negotiating', sealed_at: null });
+    expect((await fetch(`${base}/room/room_00000000/status`)).status).toBe(404);
+  });
+
+  it('activity endpoint validates state and caps lengths (Qodo #3)', async () => {
+    const bad1 = await fetch(`${base}/activity`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'agent-a', state: 'hacked' }),
+    });
+    expect(bad1.status).toBe(400);
+    const bad2 = await fetch(`${base}/activity`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'agent-a', state: 'idle', detail: 'x'.repeat(500) }),
+    });
+    expect(bad2.status).toBe(400);
+  });
+
+  it('activity detail is HTML-escaped in the room view (Qodo #3)', async () => {
+    const { id } = await openRoom();
+    await fetch(`${base}/activity`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'agent-a', state: 'negotiating', detail: '<script>alert(1)</script>' }),
+    });
+    const page = await (await fetch(`${base}/room/${id}`)).text();
+    expect(page).not.toContain('<script>alert(1)</script>');
+    expect(page).toContain('&#60;script&#62;');
   });
 });

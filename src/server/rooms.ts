@@ -154,6 +154,24 @@ export class RoomStore {
         `your terms do not match ${other[0]}'s committed terms — keep negotiating or restate them exactly`,
       );
     }
+    // Calendar metadata is part of what each human approves, so it must match
+    // too: when both sides supply a field, the values must agree. (Qodo
+    // finding: metadata could otherwise bypass the matching-approval rule.)
+    if (other?.[1].event && event) {
+      const a = other[1].event;
+      const mismatch =
+        (a.starts_at && event.starts_at && Date.parse(a.starts_at) !== Date.parse(event.starts_at)) ||
+        (a.duration_minutes !== undefined &&
+          event.duration_minutes !== undefined &&
+          a.duration_minutes !== event.duration_minutes) ||
+        (a.location && event.location && normalizeTerms(a.location) !== normalizeTerms(event.location));
+      if (mismatch) {
+        throw new SwitchboardError(
+          'terms_mismatch',
+          `your calendar details (starts_at/duration/location) do not match ${other[0]}'s — restate them identically`,
+        );
+      }
+    }
 
     room.commitments.set(handle, {
       at: this.now().toISOString(),

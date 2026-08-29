@@ -34,9 +34,11 @@ const STATE_LABEL: Record<string, string> = {
 
 function jackStatus(activity: AgentActivity | undefined): string {
   if (!activity) return '';
-  const label = STATE_LABEL[activity.state] ?? activity.state;
+  // Everything here is driver-supplied text — escape it all. (Qodo finding:
+  // unescaped detail permitted stored XSS via POST /activity.)
+  const label = esc(STATE_LABEL[activity.state] ?? activity.state);
   const cls = activity.state === 'awaiting_human' ? 'gatewait' : 'doing';
-  const detail = activity.detail ? ` — ${activity.detail}` : '';
+  const detail = activity.detail ? esc(` — ${activity.detail}`) : '';
   return `<div class="${cls}">${label}${detail ? `<span class="detail">${detail}</span>` : ''}</div>`;
 }
 
