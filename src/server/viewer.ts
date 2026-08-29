@@ -250,12 +250,39 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
         if (window.__spondeSeq === undefined) { window.__spondeSeq = seq; return; }
         if (seq <= window.__spondeSeq) return;
         window.__spondeSeq = seq;
+        var rtl = wire.getAttribute('data-lastside') === 'right';
         var cable = document.querySelector('.cable');
-        if (!cable) return;
-        var p = document.createElement('span');
-        p.className = 'pulse' + (wire.getAttribute('data-lastside') === 'right' ? ' rtl' : '');
-        cable.appendChild(p);
-        setTimeout(function () { p.remove(); }, 1100);
+        if (cable) {
+          for (var i = 0; i < 3; i++) (function (i) {
+            setTimeout(function () {
+              var p = document.createElement('span');
+              p.className = 'pulse' + (rtl ? ' rtl' : '');
+              cable.appendChild(p);
+              setTimeout(function () { p.remove(); }, 1100);
+            }, i * 180);
+          })(i);
+        }
+        // THE spectacle: the new offer card physically flies from the sending
+        // agent's panel across the screen to the receiver's, then settles.
+        var latest = document.querySelector('.msg.latest');
+        var jacks = document.querySelectorAll('.jack');
+        if (!latest || jacks.length < 2) return;
+        var from = jacks[rtl ? 1 : 0].getBoundingClientRect();
+        var to = jacks[rtl ? 0 : 1].getBoundingClientRect();
+        var ghost = latest.cloneNode(true);
+        var raw = ghost.querySelector('details'); if (raw) raw.remove();
+        ghost.className = 'ghostfly';
+        ghost.style.left = from.left + 'px';
+        ghost.style.top = (from.top + 24) + 'px';
+        ghost.style.width = Math.max(320, Math.min(460, from.width)) + 'px';
+        document.body.appendChild(ghost);
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            ghost.style.transform = 'translate(' + (to.left - from.left) + 'px, ' + (to.top - from.top) + 'px) scale(.92)';
+            ghost.style.opacity = '0';
+          });
+        });
+        setTimeout(function () { ghost.remove(); }, 1500);
       }
       spondePulse();
       setInterval(async () => {
@@ -377,6 +404,13 @@ ${TOKENS}
   @keyframes travel { from { left:-2px; opacity:1; } to { left:calc(100% - 8px); opacity:.1; } }
   .cable .pulse.rtl { animation-name:travelr; }
   @keyframes travelr { from { left:calc(100% - 8px); opacity:1; } to { left:-2px; opacity:.1; } }
+  .ghostfly { position:fixed; z-index:60; pointer-events:none; background:linear-gradient(180deg, #241d10, var(--panel));
+              border:1px solid var(--gold); border-radius:14px; padding:16px 20px;
+              box-shadow:0 0 60px rgba(217,164,65,.4), 0 24px 60px rgba(0,0,0,.6);
+              opacity:1; transform:translate(0,0) scale(1);
+              transition:transform 1.15s cubic-bezier(.45,.05,.2,1), opacity .4s ease .8s; }
+  .ghostfly .msghead { display:flex; gap:12px; align-items:baseline; }
+  .ghostfly .raw, .ghostfly .livepill { display:none; }
   .msg.left { border-left:3px solid var(--golddim); }
   .msg.right { border-left:3px solid var(--line2); background:#100e0b; }
   .msg.accept { border-left-color:var(--ok); }
