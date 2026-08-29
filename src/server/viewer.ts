@@ -195,6 +195,10 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
       </section>`
     : '';
 
+  const stateOf = (h: string): string | undefined => board?.for(h, room.id)?.state;
+  const jackCls = (h: string): string =>
+    `jack${stateOf(h) === 'negotiating' ? ' busy' : ''}${stateOf(h) === 'awaiting_human' ? ' hot' : ''}`;
+
   const keyState = (h: string): string =>
     committed.has(h)
       ? `<div class="keyslot turned">🔑 KEY TURNED<span>human approved</span></div>`
@@ -282,7 +286,11 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
             ghost.style.opacity = '0';
           });
         });
-        setTimeout(function () { ghost.remove(); }, 1500);
+        setTimeout(function () { ghost.remove(); }, 1900);
+        var anchor = document.querySelector('.msg.latest');
+        if (anchor) setTimeout(function () {
+          anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 900);
       }
       spondePulse();
       setInterval(async () => {
@@ -360,6 +368,9 @@ ${TOKENS}
   .dot.ok { background:var(--ok); }
   .dot.off { background:var(--faint); }
   @keyframes pulse { 50% { opacity:.25; } }
+  .jack.busy { border-color:var(--golddim); animation:workglow 2.2s ease-in-out infinite; }
+  @keyframes workglow { 50% { box-shadow:0 0 28px rgba(217,164,65,.22); border-color:var(--gold); } }
+  .jack.hot { border-color:var(--gold); box-shadow:0 0 34px rgba(217,164,65,.28); }
   .keyslot { margin-top:12px; border-top:1px dashed var(--line); padding-top:10px;
              color:var(--faint); font-size:10.5px; letter-spacing:.18em; }
   .keyslot span { display:block; letter-spacing:.04em; margin-top:2px; color:var(--faint); font-size:10.5px; }
@@ -405,10 +416,10 @@ ${TOKENS}
   .cable .pulse.rtl { animation-name:travelr; }
   @keyframes travelr { from { left:calc(100% - 8px); opacity:1; } to { left:-2px; opacity:.1; } }
   .ghostfly { position:fixed; z-index:60; pointer-events:none; background:linear-gradient(180deg, #241d10, var(--panel));
-              border:1px solid var(--gold); border-radius:14px; padding:16px 20px;
-              box-shadow:0 0 60px rgba(217,164,65,.4), 0 24px 60px rgba(0,0,0,.6);
-              opacity:1; transform:translate(0,0) scale(1);
-              transition:transform 1.15s cubic-bezier(.45,.05,.2,1), opacity .4s ease .8s; }
+              border:1px solid var(--gold2); border-radius:14px; padding:18px 22px;
+              box-shadow:0 0 90px rgba(217,164,65,.55), 0 0 24px rgba(240,196,106,.5), 0 24px 60px rgba(0,0,0,.6);
+              opacity:1; transform:translate(0,0) scale(1.04);
+              transition:transform 1.5s cubic-bezier(.45,.05,.2,1), opacity .45s ease 1.1s; }
   .ghostfly .msghead { display:flex; gap:12px; align-items:baseline; }
   .ghostfly .raw, .ghostfly .livepill { display:none; }
   .msg.left { border-left:3px solid var(--golddim); }
@@ -480,7 +491,7 @@ ${dust(26)}
 ${ticker}
 ${gateBanner}
 <div class="lines">
-  <div class="jack">
+  <div class="${jackCls(left)}">
     <div class="label">LINE 1</div>
     <div class="who"><div class="mono">${esc(monogram(left))}</div>
       <div class="handle">${esc(left)}</div></div>
@@ -493,7 +504,7 @@ ${gateBanner}
     <div style="width:100%;overflow:hidden"><div class="wireline"></div></div>
     <span class="keys">${keys} / 2 KEYS</span>
   </div>
-  <div class="jack">
+  <div class="${jackCls(right)}">
     <div class="label">LINE 2</div>
     <div class="who"><div class="mono">${esc(monogram(right))}</div>
       <div class="handle">${esc(right)}</div></div>
