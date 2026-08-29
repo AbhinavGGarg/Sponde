@@ -53,6 +53,24 @@ function err(e: unknown) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** ISO-8601 with explicit offset, and the date/time components must be real
+ * (no Feb 30, no 25:00) — checked field-by-field, never via Date rollover. */
+export function isValidIsoWithOffset(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?([+-]\d{2}:\d{2}|Z)$/.exec(s);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const hh = Number(m[4]);
+  const mm = Number(m[5]);
+  const ss = m[6] === undefined ? 0 : Number(m[6]);
+  if (mo < 1 || mo > 12) return false;
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  if (d < 1 || d > daysInMonth) return false;
+  if (hh > 23 || mm > 59 || ss > 59) return false;
+  return !Number.isNaN(Date.parse(s));
+}
+
 export function buildSwitchboardServer(store: RoomStore): McpServer {
   const server = new McpServer({ name: 'switchboard', version: '0.1.0' });
 
@@ -216,11 +234,13 @@ export function buildSwitchboardServer(store: RoomStore): McpServer {
     },
     async ({ room_id, handle, line_token, terms, starts_at, duration_minutes, location }) => {
       try {
-        // Require an explicit timezone: bare local datetimes are ambiguous
-        // across two humans' machines. (Qodo finding.)
-        const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2}|Z)$/;
-        if (starts_at !== undefined && (!ISO_WITH_OFFSET.test(starts_at) || Number.isNaN(Date.parse(starts_at)))) {
-          return err('starts_at must be ISO-8601 WITH a timezone offset, e.g. 2026-08-29T19:45:00-07:00');
+        // Require an explicit timezone AND a real calendar date: bare local
+        // datetimes are ambiguous across machines, and JS Date silently rolls
+        // impossible dates (Feb 30 → Mar 2). (Qodo findings, rounds 1 & 2.)
+        if (starts_at !== undefined && !isValidIsoWithOffset(starts_at)) {
+          return err(
+            'starts_at must be a real calendar datetime in ISO-8601 WITH a timezone offset, e.g. 2026-08-29T19:45:00-07:00',
+          );
         }
         const room = store.commit(room_id, handle, line_token, terms, {
           ...(starts_at !== undefined ? { starts_at } : {}),

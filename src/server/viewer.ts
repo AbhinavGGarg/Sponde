@@ -64,7 +64,11 @@ const STATE_LABEL: Record<string, string> = {
   done: 'DONE',
 };
 
-function jackStatus(activity: AgentActivity | undefined): string {
+function jackStatus(activity: AgentActivity | undefined, roomStatus?: string): string {
+  // A closed room's live status is history — show the terminal state, never
+  // a stale "negotiating". (Cosmetic fix for sealed rooms.)
+  if (roomStatus === 'sealed') return `<div class="doing">DONE — agreement sealed</div>`;
+  if (roomStatus === 'abandoned') return `<div class="doing">CLOSED — no deal</div>`;
   if (!activity) return '';
   // Everything here is driver-supplied text — escape it all. (Qodo finding:
   // unescaped detail permitted stored XSS via POST /activity.)
@@ -80,7 +84,7 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
   const right = handles[1] ?? '(line open)';
   const connected = handles.length === 2;
   const committed = new Set(room.commitments.keys());
-  const pending = board?.pendingHuman() ?? [];
+  const pending = board?.pendingHuman(room.id) ?? [];
 
   const gateBanner =
     pending.length > 0 && room.status !== 'sealed'
@@ -208,14 +212,14 @@ ${gateBanner}
   <div class="jack">
     <div class="label">LINE 1</div>
     <div class="handle">${esc(left)}</div>
-    ${jackStatus(board?.for(left))}
+    ${jackStatus(board?.for(left, room.id), room.status)}
     ${committed.has(left) ? '<div class="committed">✓ COMMITTED (human approved)</div>' : ''}
   </div>
   <div class="cable"></div>
   <div class="jack">
     <div class="label">LINE 2</div>
     <div class="handle">${esc(right)}</div>
-    ${jackStatus(board?.for(right))}
+    ${jackStatus(board?.for(right, room.id), room.status)}
     ${committed.has(right) ? '<div class="committed">✓ COMMITTED (human approved)</div>' : ''}
   </div>
 </div>

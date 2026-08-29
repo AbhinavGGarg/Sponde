@@ -1,4 +1,4 @@
-import type { Room } from './rooms.js';
+import { normalizeTerms, type EventMeta, type Room } from './rooms.js';
 
 /**
  * The real external action after both approvals: a calendar hold generated
@@ -16,17 +16,34 @@ function toIcsUtc(iso: string): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
+/** Field-wise intersection of both sides' committed event metadata. */
+export function agreedEvent(a?: EventMeta, b?: EventMeta): EventMeta | undefined {
+  if (!a || !b) return undefined;
+  const e: EventMeta = {};
+  if (a.starts_at && b.starts_at && Date.parse(a.starts_at) === Date.parse(b.starts_at)) {
+    e.starts_at = a.starts_at;
+  }
+  if (a.duration_minutes !== undefined && a.duration_minutes === b.duration_minutes) {
+    e.duration_minutes = a.duration_minutes;
+  }
+  if (a.location && b.location && normalizeTerms(a.location) === normalizeTerms(b.location)) {
+    e.location = a.location;
+  }
+  return Object.keys(e).length > 0 ? e : undefined;
+}
+
 /** Returns the .ics text for a sealed room, or undefined when not sealed. */
 export function buildCalendarHold(room: Room): string | undefined {
   if (room.status !== 'sealed' || !room.seal) return undefined;
 
   const commitments = [...room.commitments.values()];
   const terms = commitments[0]?.terms ?? room.topic;
-  // Only dually-approved metadata reaches the calendar hold: a field appears
-  // in the event only when BOTH sides committed it (equality is enforced at
-  // commit time). One-sided metadata falls back to an all-day hold.
+  // Only dually-approved metadata reaches the calendar hold: FIELD-WISE
+  // intersection — a field appears only when BOTH sides committed it with
+  // equal values. Partial metadata one side added unilaterally is dropped.
+  // (Qodo round 2, finding 1.)
   const [ma, mb] = commitments.map((c) => c.event);
-  const event = ma && mb ? ma : undefined;
+  const event = agreedEvent(ma, mb);
 
   const lines = [
     'BEGIN:VCALENDAR',

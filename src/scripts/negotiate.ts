@@ -20,18 +20,17 @@ const MAX_NUDGES = 8;
 
 const client = new TrueForge({ baseUrl: TRUEFORGE_BASE_URL, timeoutInSeconds: 900 });
 
-type SideName = 'switchboard-abhinav' | 'switchboard-priya';
+// Any seeded agent pair works: AGENT_A/AGENT_B env vars pick who negotiates.
+//   AGENT_A=switchboard-buyer AGENT_B=switchboard-vendor npm run negotiate -- "..."
+const AGENT_A = process.env.AGENT_A ?? 'switchboard-abhinav';
+const AGENT_B = process.env.AGENT_B ?? 'switchboard-priya';
 
-/** Room handles are what the operator view keys activity by — always report
- * under the handle, not the TrueForge agent name. (Qodo finding: identifiers
- * did not match, so live activity never rendered.) */
-const ROOM_HANDLE: Record<SideName, string> = {
-  'switchboard-abhinav': 'agent-abhinav',
-  'switchboard-priya': 'agent-priya',
-};
+/** Room handle for an agent name: switchboard-abhinav → agent-abhinav.
+ * The operator view keys activity by handle, never by TrueForge agent name. */
+const handleFor = (agent: string): string => `agent-${agent.split('-').slice(1).join('-') || agent}`;
 
 interface SideState {
-  agent: SideName;
+  agent: string;
   sessionId: string;
   nudges: number;
   paused: boolean;
@@ -43,7 +42,8 @@ async function reportActivity(agent: string, state: string, detail: string): Pro
     await fetch(`${SWITCHBOARD_URL}/activity`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ agent, state, detail }),
+      // Room-scoped once the room exists, so status never leaks across rooms.
+      body: JSON.stringify({ agent, state, detail, ...(seenRoomId ? { room_id: seenRoomId } : {}) }),
     });
   } catch {
     /* display-only; never block the negotiation on it */
@@ -64,7 +64,7 @@ async function roomState(roomId: string): Promise<{ id: string; status: string }
 /** Run one turn; returns what the turn surfaced. */
 async function runTurn(side: SideState, content: string): Promise<'done' | 'approval' | 'error'> {
   let outcome: 'done' | 'approval' | 'error' = 'done';
-  await reportActivity(ROOM_HANDLE[side.agent], 'negotiating', 'working the room');
+  await reportActivity(handleFor(side.agent), 'negotiating', 'working the room');
   const stream = await client.sessions.createTurnStream(side.sessionId, {
     input: [{ type: 'user.message', content }],
   });
@@ -74,7 +74,7 @@ async function runTurn(side: SideState, content: string): Promise<'done' | 'appr
       outcome = 'approval';
       side.paused = true;
       side.pausedAt = Date.now();
-      await reportActivity(ROOM_HANDLE[side.agent], 'awaiting_human', 'commit_deal paused for approval');
+      await reportActivity(handleFor(side.agent), 'awaiting_human', 'commit_deal paused for approval');
       await notify(
         'approval_needed',
         `${side.agent} wants to COMMIT the deal — its human must Allow/Deny in the TrueForge UI (${TRUEFORGE_BASE_URL})`,
@@ -88,7 +88,7 @@ async function runTurn(side: SideState, content: string): Promise<'done' | 'appr
       console.log(`[negotiate] room on the wire: ${seenRoomId} → ${SWITCHBOARD_URL}/room/${seenRoomId}`);
     }
   }
-  if (outcome === 'done') await reportActivity(ROOM_HANDLE[side.agent], 'waiting_reply', 'turn ended, listening');
+  if (outcome === 'done') await reportActivity(handleFor(side.agent), 'waiting_reply', 'turn ended, listening');
   return outcome;
 }
 
@@ -96,17 +96,17 @@ let seenRoomId: string | undefined;
 
 async function main(): Promise<void> {
   console.log(`[negotiate] task: ${TASK}`);
-  const { data: sessionA } = await client.sessions.create({ agent: { name: 'switchboard-abhinav' } });
-  const { data: sessionB } = await client.sessions.create({ agent: { name: 'switchboard-priya' } });
-  const A: SideState = { agent: 'switchboard-abhinav', sessionId: sessionA.id, nudges: 0, paused: false };
-  const B: SideState = { agent: 'switchboard-priya', sessionId: sessionB.id, nudges: 0, paused: false };
+  const { data: sessionA } = await client.sessions.create({ agent: { name: AGENT_A } });
+  const { data: sessionB } = await client.sessions.create({ agent: { name: AGENT_B } });
+  const A: SideState = { agent: AGENT_A, sessionId: sessionA.id, nudges: 0, paused: false };
+  const B: SideState = { agent: AGENT_B, sessionId: sessionB.id, nudges: 0, paused: false };
   console.log(`[negotiate] sessions: A=${A.sessionId} B=${B.sessionId} (open both in the TrueForge UI)`);
 
   // Opening turns run concurrently: A opens the room; B joins as soon as the
   // driver sees the room id on A's stream.
   const aOpening = runTurn(
     A,
-    `${TASK}. Open a switchboard room now (handle "agent-abhinav"), post your opening proposal, and wait for replies. Say the room_id in your first sentence.`,
+    `${TASK}. Open a switchboard room now (handle "${handleFor(AGENT_A)}"), post your opening proposal, and wait for replies. Say the room_id in your first sentence.`,
   );
   const roomId = await (async () => {
     for (let i = 0; i < 120 && !seenRoomId; i++) await new Promise((r) => setTimeout(r, 1000));
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
   }
   const bOpening = runTurn(
     B,
-    `${TASK}. Join switchboard room ${roomId} (handle "agent-priya"), read the wire, and negotiate for your human. Wait for replies between offers.`,
+    `${TASK}. Join switchboard room ${roomId} (handle "${handleFor(AGENT_B)}"), read the wire, and negotiate for your human. Wait for replies between offers.`,
   );
   await Promise.all([aOpening, bOpening]);
 
@@ -127,8 +127,8 @@ async function main(): Promise<void> {
   for (;;) {
     const room = seenRoomId ? await roomState(seenRoomId) : undefined;
     if (room?.status === 'sealed') {
-      await reportActivity(ROOM_HANDLE[A.agent], 'done', 'deal sealed');
-      await reportActivity(ROOM_HANDLE[B.agent], 'done', 'deal sealed');
+      await reportActivity(handleFor(A.agent), 'done', 'deal sealed');
+      await reportActivity(handleFor(B.agent), 'done', 'deal sealed');
       await notify('resolved', `deal SEALED in ${room.id} — receipt at ${SWITCHBOARD_URL}/room/${room.id}`);
       break;
     }

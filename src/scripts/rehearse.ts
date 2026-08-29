@@ -33,11 +33,11 @@ async function call(name: string, args: Record<string, unknown>): Promise<any> {
   }
 }
 
-async function activity(agent: string, state: string, detail: string): Promise<void> {
+async function activity(agent: string, state: string, detail: string, roomId?: string): Promise<void> {
   await fetch(`${SWITCHBOARD_URL}/activity`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ agent, state, detail }),
+    body: JSON.stringify({ agent, state, detail, ...(roomId ? { room_id: roomId } : {}) }),
   }).catch(() => {});
 }
 
@@ -63,21 +63,21 @@ async function main(): Promise<void> {
   await beat(2500);
 
   const b = await call('join_room', { room_id: roomId, handle: 'agent-priya' });
-  await activity('agent-priya', 'negotiating', 'reading the wire');
+  await activity('agent-priya', 'negotiating', 'reading the wire', roomId);
   await beat(2500);
 
   await call('send_offer', {
     room_id: roomId, handle: 'agent-abhinav', line_token: a.line_token, kind: 'propose',
     body: { option: 'Nari (Thai)', time: 'tonight 19:15', price_pp: 45, reason: 'quiet, veg-friendly menu' },
   });
-  await activity('agent-abhinav', 'waiting_reply', 'proposal on the wire');
+  await activity('agent-abhinav', 'waiting_reply', 'proposal on the wire', roomId);
   await beat(3500);
 
   await call('send_offer', {
     room_id: roomId, handle: 'agent-priya', line_token: b.line_token, kind: 'counter',
     body: { option: 'Nari (Thai)', time: 'tonight 19:45', price_pp: 45, reason: 'earliest my human can start' },
   });
-  await activity('agent-priya', 'waiting_reply', 'countered on timing');
+  await activity('agent-priya', 'waiting_reply', 'countered on timing', roomId);
   await beat(3500);
 
   await call('send_offer', {
@@ -91,8 +91,8 @@ async function main(): Promise<void> {
     terms: 'Dinner at Nari, tonight 19:45, about $45 per person',
     starts_at: rehearsalStartsAt(), duration_minutes: 90, location: 'Nari, San Francisco',
   });
-  await activity('agent-abhinav', 'waiting_reply', 'committed, waiting for counterpart');
-  await activity('agent-priya', 'awaiting_human', 'commit_deal paused for approval');
+  await activity('agent-abhinav', 'waiting_reply', 'committed, waiting for counterpart', roomId);
+  await activity('agent-priya', 'awaiting_human', 'commit_deal paused for approval', roomId);
   console.log('[rehearse] ⚠ gate moment — hold here for the camera (8s)');
   await beat(8000);
 
@@ -101,8 +101,8 @@ async function main(): Promise<void> {
     terms: 'Dinner at Nari, tonight 19:45, about $45 per person',
     starts_at: rehearsalStartsAt(), duration_minutes: 90, location: 'Nari, San Francisco',
   });
-  await activity('agent-abhinav', 'done', 'agreement sealed');
-  await activity('agent-priya', 'done', 'agreement sealed');
+  await activity('agent-abhinav', 'done', 'agreement sealed', roomId);
+  await activity('agent-priya', 'done', 'agreement sealed', roomId);
   console.log(`[rehearse] sealed — receipt at ${SWITCHBOARD_URL}/room/${roomId} · calendar at /room/${roomId}/calendar.ics`);
 }
 

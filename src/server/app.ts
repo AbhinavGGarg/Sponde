@@ -103,19 +103,27 @@ export function buildApp(store: RoomStore = new RoomStore()): {
 
   const VALID_STATES: AgentState[] = ['idle', 'negotiating', 'waiting_reply', 'awaiting_human', 'done'];
   app.post('/activity', (req, res) => {
-    const { agent, state, detail } = req.body as { agent?: unknown; state?: unknown; detail?: unknown };
+    const { agent, state, detail, room_id } = req.body as {
+      agent?: unknown;
+      state?: unknown;
+      detail?: unknown;
+      room_id?: unknown;
+    };
     if (
       typeof agent !== 'string' ||
       agent.length === 0 ||
       agent.length > 64 ||
       typeof state !== 'string' ||
       !VALID_STATES.includes(state as AgentState) ||
-      (detail !== undefined && (typeof detail !== 'string' || detail.length > 140))
+      (detail !== undefined && (typeof detail !== 'string' || detail.length > 140)) ||
+      (room_id !== undefined && (typeof room_id !== 'string' || room_id.length > 40))
     ) {
-      res.status(400).json({ error: 'agent (≤64 chars), valid state, and optional detail (≤140 chars) required' });
+      res.status(400).json({ error: 'agent (≤64), valid state, optional detail (≤140), optional room_id (≤40)' });
       return;
     }
-    res.json(board.report(agent, state as AgentState, (detail as string | undefined) ?? ''));
+    res.json(
+      board.report(agent, state as AgentState, (detail as string | undefined) ?? '', room_id as string | undefined),
+    );
   });
 
   // Machine-readable status for one room — the driver watches THIS, never a

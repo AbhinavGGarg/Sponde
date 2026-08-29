@@ -208,11 +208,68 @@ describe('go/no-go: the operator surface is hardened', () => {
     expect(bad2.status).toBe(400);
   });
 
+  it('PARTIAL calendar metadata never reaches the hold — field-wise intersection (Qodo r2 #1)', async () => {
+    const { id, aTok, bTok } = await openRoom();
+    await call('commit_deal', {
+      room_id: id, handle: 'agent-a', line_token: aTok,
+      terms: 'Contract signed as discussed today',
+      starts_at: '2026-09-01T10:00:00-07:00', location: 'Unilateral Tower', duration_minutes: 60,
+    });
+    await call('commit_deal', {
+      room_id: id, handle: 'agent-b', line_token: bTok,
+      terms: 'Contract signed as discussed today',
+      starts_at: '2026-09-01T10:00:00-07:00', // matches — but no location, no duration
+    });
+    const ics = await (await fetch(`${base}/room/${id}/calendar.ics`)).text();
+    expect(ics).toContain('DTSTART:20260901T170000Z'); // both agreed the time
+    expect(ics).not.toContain('Unilateral Tower'); // one-sided location dropped
+    expect(ics).toContain('DTEND:20260901T183000Z'); // default 90min, not A's unilateral 60
+  });
+
+  it('impossible calendar dates are rejected, not silently normalized (Qodo r2 #2)', async () => {
+    const { id, aTok } = await openRoom();
+    for (const bad of ['2026-02-30T19:00:00-07:00', '2026-13-01T19:00:00-07:00', '2026-08-29T25:00:00-07:00']) {
+      const res = await call('commit_deal', {
+        room_id: id, handle: 'agent-a', line_token: aTok,
+        terms: 'Some deal with a broken date', starts_at: bad,
+      });
+      expect(res.isError, `${bad} must be rejected`).toBe(true);
+    }
+  });
+
+  it('activity state never leaks across rooms sharing a handle (Qodo r2 #3)', async () => {
+    const roomA = await openRoom();
+    const roomB = await openRoom();
+    await fetch(`${base}/activity`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'agent-a', state: 'awaiting_human', detail: 'room A gate', room_id: roomA.id }),
+    });
+    const pageA = await (await fetch(`${base}/room/${roomA.id}`)).text();
+    const pageB = await (await fetch(`${base}/room/${roomB.id}`)).text();
+    expect(pageA).toContain('room A gate');
+    expect(pageA).toContain('IRREVERSIBLE STEP PAUSED');
+    expect(pageB).not.toContain('room A gate');
+    expect(pageB).not.toContain('IRREVERSIBLE STEP PAUSED');
+  });
+
+  it('a sealed room shows terminal status, never stale live activity', async () => {
+    const { id, aTok, bTok } = await openRoom();
+    await fetch(`${base}/activity`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'agent-a', state: 'negotiating', detail: 'working the room', room_id: id }),
+    });
+    await call('commit_deal', { room_id: id, handle: 'agent-a', line_token: aTok, terms: 'Terminal-status test deal' });
+    await call('commit_deal', { room_id: id, handle: 'agent-b', line_token: bTok, terms: 'Terminal-status test deal' });
+    const page = await (await fetch(`${base}/room/${id}`)).text();
+    expect(page).toContain('DONE — agreement sealed');
+    expect(page).not.toContain('working the room');
+  });
+
   it('activity detail is HTML-escaped in the room view (Qodo #3)', async () => {
     const { id } = await openRoom();
     await fetch(`${base}/activity`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ agent: 'agent-a', state: 'negotiating', detail: '<script>alert(1)</script>' }),
+      body: JSON.stringify({ agent: 'agent-a', state: 'negotiating', detail: '<script>alert(1)</script>', room_id: id }),
     });
     const page = await (await fetch(`${base}/room/${id}`)).text();
     expect(page).not.toContain('<script>alert(1)</script>');
