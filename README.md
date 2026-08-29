@@ -56,7 +56,7 @@ The tests pin what matters: the room state machine, line-token integrity, dual-c
 
 ## Honest limits
 
-The sealed agreement is a mutually-approved receipt plus a calendar hold — not a legal contract and not a restaurant reservation (no booking API is called). Privacy is a strict schema, not magic: raw constraints have no channel through the room, but a counterpart can still infer preferences from what you accept and reject. The transcript hash is self-authenticated, not externally signed. The switchboard binds to loopback and holds no credentials; in-memory rooms vanish on restart — durability of the *negotiation* lives in TrueForge's sessions, which is the point.
+The sealed agreement is a mutually-approved receipt plus a calendar hold — not a legal contract and not a restaurant reservation (no booking API is called). Privacy is a strict schema, not magic: there is no *structured* channel for raw constraints, but two bounded free-text fields (`reason`, and the terms sentence itself) exist so agents can explain offers — a misbehaving or misinstructed agent could volunteer private information there, and a counterpart can always infer preferences from what you accept and reject. We scope the claim accordingly: constraints are protected by schema + agent instructions, not by content inspection (keyword filtering of prose would be security theater, so we refuse to pretend otherwise). The transcript hash is self-authenticated, not externally signed. The switchboard binds to loopback and holds no credentials; in-memory rooms vanish on restart — durability of the *negotiation* lives in TrueForge's sessions, which is the point.
 
 ## The integration rule
 

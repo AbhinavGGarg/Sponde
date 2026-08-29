@@ -59,8 +59,13 @@ export function buildCalendarHold(room: Room): string | undefined {
 
   if (event?.starts_at && !Number.isNaN(Date.parse(event.starts_at))) {
     const start = new Date(event.starts_at);
-    const end = new Date(start.getTime() + (event.duration_minutes ?? 90) * 60_000);
-    lines.push(`DTSTART:${toIcsUtc(start.toISOString())}`, `DTEND:${toIcsUtc(end.toISOString())}`);
+    lines.push(`DTSTART:${toIcsUtc(start.toISOString())}`);
+    // DTEND only when BOTH sides committed a duration — the server never
+    // invents an end time nobody approved. (Qodo round 3.)
+    if (event.duration_minutes !== undefined) {
+      const end = new Date(start.getTime() + event.duration_minutes * 60_000);
+      lines.push(`DTEND:${toIcsUtc(end.toISOString())}`);
+    }
   } else {
     // No structured time in the commitments: an all-day hold on the seal date.
     const day = room.seal.sealedAt.slice(0, 10).replace(/-/g, '');

@@ -223,7 +223,7 @@ describe('go/no-go: the operator surface is hardened', () => {
     const ics = await (await fetch(`${base}/room/${id}/calendar.ics`)).text();
     expect(ics).toContain('DTSTART:20260901T170000Z'); // both agreed the time
     expect(ics).not.toContain('Unilateral Tower'); // one-sided location dropped
-    expect(ics).toContain('DTEND:20260901T183000Z'); // default 90min, not A's unilateral 60
+    expect(ics).not.toContain('DTEND:'); // no agreed duration → no invented end time (Qodo r3)
   });
 
   it('impossible calendar dates are rejected, not silently normalized (Qodo r2 #2)', async () => {
