@@ -31,6 +31,7 @@ flowchart LR
 - **An agreement needs two humans**: the room seals only when both sides commit matching terms, and each side's `commit_deal` is paused by its own TrueForge approval gate. Nothing on the switchboard can make one human's click cover the other.
 - **The harness does the work**: two TrueForge sessions run the agent loops, MCP connects them to the room, approvals gate commitment, and sessions survive a refresh mid-negotiation. The driver (`src/scripts/negotiate.ts`) only starts turns and reports display-state; it never negotiates or approves.
 - **Live web data** (optional): connect Bright Data's MCP in TrueForge and set `BRIGHTDATA_CONNECTOR` — the agents then negotiate over fresh, real venue data instead of priors.
+- **Real action on seal** (optional): set `GMAIL_USER` + `GMAIL_APP_PASSWORD` (and `SEAL_EMAIL_TO`, comma-separated) — the moment both keys turn, the room emails a genuine calendar invite (iCalendar `METHOD:REQUEST`) to both humans, exactly once. It renders as an actual event with Accept/Decline in their mail clients; nobody downloads a file. The seal is the socket: any actuator with an API attaches at this same point, safely behind two human approvals.
 
 ## Run it
 
@@ -49,7 +50,7 @@ Then watch `http://localhost:7400`, keep both agents' sessions open in the TrueF
 ## Tests
 
 ```bash
-npm run check   # lint + strict typescript + 12 tests
+npm run check   # lint + strict typescript + 30 tests
 ```
 
 The tests pin what matters: the room state machine, line-token integrity, dual-commit sealing with terms matching, immutability after seal, and — at the MCP protocol level — that exactly the binding tools carry the destructive annotation the approval policy resolves.
