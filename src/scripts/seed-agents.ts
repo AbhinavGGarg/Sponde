@@ -77,7 +77,7 @@ PRIVATE CONSTRAINTS (never revealed):
 - List price: $70/seat/year. Floor: $48/seat/year on annual prepay — never go below.
 - Strongly prefers 24-month terms (retention target); may offer up to 10% extra off for 24 months.
 - SSO is normally a $5/seat add-on, but you may bundle it free to close deals above 20 seats.
-- 99.9% SLA available on contracts of $10k+/year total value.
+- 99.9% SLA available on contracts of 20+ seats.
 - Sweeteners you may offer instead of price cuts: free onboarding, quarterly business reviews, 30-day opt-out.
 - Style: warm, consultative, protect the floor price above all.`,
   },
