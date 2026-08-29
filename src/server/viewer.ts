@@ -11,16 +11,48 @@ import type { Room, RoomMessage } from './rooms.js';
 const esc = (s: unknown): string =>
   String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+function offerCard(body: Record<string, unknown>): string {
+  const chips: string[] = [];
+  const chip = (label: string, cls = '') =>
+    chips.push(`<span class="chip ${cls}">${esc(label)}</span>`);
+
+  const title = body.option ?? body.item;
+  const price = body.price_pp ?? body.price;
+  if (body.place) chip(String(body.place), 'place');
+  if (body.date || body.time) chip([body.date, body.time].filter(Boolean).join(' · '), 'time');
+  if (price !== undefined) chip(`$${price}${body.price_pp !== undefined ? '/person' : ''}`, 'price');
+  if (body.duration_minutes) chip(`${body.duration_minutes} min`);
+  if (body.quantity) chip(`×${body.quantity}`);
+  if (body.source_url) {
+    chips.push(
+      `<a class="chip source" href="${esc(String(body.source_url))}" target="_blank" rel="noreferrer">⛓ live source${
+        body.retrieved_at ? esc(` · ${String(body.retrieved_at).slice(11, 16)}`) : ''
+      }</a>`,
+    );
+  } else if (body.unverified) {
+    chip('unverified', 'unverified');
+  }
+  if (body.committed) chip('COMMITTED', 'committed');
+
+  return `${title ? `<div class="offer-title">${esc(String(title))}</div>` : ''}
+    ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
+    ${body.reason ? `<div class="reason">${esc(String(body.reason))}</div>` : ''}
+    ${body.terms ? `<div class="reason">“${esc(String(body.terms))}”</div>` : ''}
+    <details class="raw"><summary>raw offer</summary><code>${esc(JSON.stringify(body))}</code></details>`;
+}
+
 function messageRow(m: RoomMessage, left: string): string {
   const side = m.from === left ? 'left' : 'right';
   const kindClass = ['accept', 'reject'].includes(m.kind) ? ` ${m.kind}` : '';
-  const body = esc(JSON.stringify(m.body, null, 1)).replace(/\n\s*/g, ' ');
+  const body = (m.body ?? {}) as Record<string, unknown>;
   return `<div class="msg ${side}${kindClass}">
-    <span class="seq">#${String(m.seq).padStart(3, '0')}</span>
-    <span class="from">${esc(m.from)}</span>
-    <span class="kind">${esc(m.kind.toUpperCase())}</span>
-    <span class="body">${body}</span>
-    <span class="at">${esc(m.at.slice(11, 19))}</span>
+    <div class="msghead">
+      <span class="seq">#${String(m.seq).padStart(3, '0')}</span>
+      <span class="from">${esc(m.from)}</span>
+      <span class="kind">${esc(m.kind.toUpperCase())}</span>
+      <span class="at">${esc(m.at.slice(11, 19))}</span>
+    </div>
+    <div class="msgbody">${offerCard(body)}</div>
   </div>`;
 }
 
@@ -54,7 +86,7 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
     pending.length > 0 && room.status !== 'sealed'
       ? `<div class="gate">⚠ IRREVERSIBLE STEP PAUSED — ${pending
           .map((p) => `<b>${esc(p.agent)}</b> wants to commit the deal`)
-          .join(' · ')}. Nothing is booked until its human presses <b>Allow</b> in TrueForge. The switchboard asks <i>before</i>, never after.</div>`
+          .join(' · ')}. Nothing is booked until its human presses <b>Allow</b> in TrueForge. Sponde asks <i>before</i>, never after.</div>`
       : '';
 
   const statusLabel = {
@@ -71,12 +103,29 @@ export function renderRoomPage(room: Room, board?: ActivityBoard): string {
        <a href="/room/${esc(room.id)}/calendar.ics" style="color:var(--ok)">⬇ ADD TO CALENDAR (.ics)</a></div></div>`
     : '';
 
-  const refresh = room.status === 'sealed' || room.status === 'abandoned' ? '' : '<meta http-equiv="refresh" content="2">';
+  // Live updates via fetch-and-morph — no full-page refresh flash, scroll
+  // position preserved, paused while the reader has a raw-offer panel open.
+  const live = room.status !== 'sealed' && room.status !== 'abandoned';
+  const poll = live
+    ? `<script>
+      setInterval(async () => {
+        if (document.querySelector('details[open]')) return;
+        try {
+          const html = await (await fetch(location.href)).text();
+          const next = new DOMParser().parseFromString(html, 'text/html');
+          if (next.body.innerHTML !== document.body.innerHTML) {
+            const y = window.scrollY;
+            document.body.replaceChildren(...next.body.childNodes);
+            window.scrollTo(0, y);
+          }
+        } catch {}
+      }, 1500);
+    </script>`
+    : '';
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-${refresh}
 <title>Sponde · ${esc(room.id)}</title>
 <style>
   :root { --bg:#0d0c0a; --panel:#161311; --line:#2a241f; --text:#efe7da; --dim:#8d8272;
@@ -106,16 +155,31 @@ ${refresh}
   .wire { margin:20px 28px; border:1px solid var(--line); background:var(--panel); }
   .wire h2 { margin:0; padding:10px 16px; font-size:11px; letter-spacing:.25em;
              color:var(--dim); border-bottom:1px solid var(--line); font-weight:400; }
-  .msg { display:flex; gap:12px; padding:9px 16px; border-bottom:1px dotted var(--line);
-         font-size:13px; align-items:baseline; }
+  .msg { display:block; padding:10px 16px 12px; border-bottom:1px dotted var(--line); font-size:13px; }
   .msg.right { background:#131110; }
-  .msg .seq { color:var(--dim); }
-  .msg .from { color:var(--brass); min-width:120px; }
-  .msg .kind { color:var(--dim); min-width:70px; font-size:11px; letter-spacing:.1em; }
-  .msg.accept .kind { color:var(--ok); }
-  .msg.reject .kind { color:var(--no); }
-  .msg .body { flex:1; overflow-wrap:anywhere; }
-  .msg .at { color:var(--dim); font-size:11px; }
+  .msghead { display:flex; gap:12px; align-items:baseline; }
+  .msg .seq { color:var(--dim); font-size:11px; }
+  .msg .from { color:var(--brass); }
+  .msg .kind { color:var(--dim); font-size:11px; letter-spacing:.14em; border:1px solid var(--line);
+               padding:1px 7px; }
+  .msg.accept .kind { color:var(--ok); border-color:var(--ok); }
+  .msg.reject .kind { color:var(--no); border-color:var(--no); }
+  .msg .at { color:var(--dim); font-size:11px; margin-left:auto; }
+  .msgbody { margin-top:6px; }
+  .offer-title { font-size:15px; color:var(--text); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip { border:1px solid var(--line); background:#100e0c; color:var(--text); padding:2px 9px;
+          font-size:11.5px; letter-spacing:.03em; text-decoration:none; }
+  .chip.price { border-color:var(--brass); color:var(--brass); }
+  .chip.time { color:var(--text); }
+  .chip.place { color:var(--dim); }
+  .chip.unverified { border-color:#7a5c1e; color:#c9a45a; font-style:italic; }
+  .chip.source { border-color:var(--ok); color:var(--ok); }
+  .chip.committed { border-color:var(--ok); color:var(--ok); letter-spacing:.15em; }
+  .reason { color:var(--dim); font-size:12px; margin-top:6px; max-width:70ch; line-height:1.6; }
+  .raw { margin-top:6px; }
+  .raw summary { color:#4d443a; font-size:10.5px; cursor:pointer; letter-spacing:.08em; }
+  .raw code { display:block; color:var(--dim); font-size:11px; overflow-wrap:anywhere; padding:6px 0 0; }
   .gate { margin:16px 28px 0; border:2px solid var(--brass); background:repeating-linear-gradient(
             -45deg, #1c1710, #1c1710 12px, #211a0e 12px, #211a0e 24px);
           color:var(--brass); padding:14px 18px; font-size:13px; line-height:1.6; }
@@ -160,7 +224,8 @@ ${gateBanner}
   ${room.messages.map((m) => messageRow(m, left)).join('\n') || '<div class="msg"><span class="body">silence on the line…</span></div>'}
 </div>
 ${sealBlock}
-<footer>read-only operator view · every commit above passed a human approval gate in TrueForge · switchboard keeps no credentials</footer>
+<footer>read-only operator view · every commit above passed a human approval gate in TrueForge · the room keeps no credentials</footer>
+${poll}
 </body></html>`;
 }
 
@@ -191,7 +256,7 @@ export function renderIndexPage(rooms: Room[], board?: ActivityBoard, driverRunn
         <button type="submit">CONNECT THE LINES</button>
        </form>`;
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><meta http-equiv="refresh" content="3">
+  return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Sponde · operator</title>
 <style>body{margin:0;background:#0d0c0a;color:#efe7da;font-family:ui-monospace,Menlo,monospace}
@@ -215,5 +280,22 @@ ${startForm}
 ${activity || '<div class="msg"><span class="body">no agents reporting yet</span></div>'}
 <h2>LINES</h2>
 ${rows || '<div class="msg"><span class="body">no lines connected yet</span></div>'}
+<script>
+  // Live updates that NEVER interrupt typing: the swap is skipped while the
+  // task input is focused or holds text.
+  setInterval(async () => {
+    const input = document.querySelector('.startbox input');
+    if (input && (document.activeElement === input || input.value.length > 0)) return;
+    try {
+      const html = await (await fetch(location.href)).text();
+      const next = new DOMParser().parseFromString(html, 'text/html');
+      if (next.body.innerHTML !== document.body.innerHTML) {
+        const y = window.scrollY;
+        document.body.replaceChildren(...next.body.childNodes);
+        window.scrollTo(0, y);
+      }
+    } catch {}
+  }, 2000);
+</script>
 </body></html>`;
 }
